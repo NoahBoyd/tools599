@@ -147,7 +147,7 @@ $Action = {
       Start-Sleep 2
 
       # Copy Interim to Litmus
-      robocopy $interimfolder $copyToLitmus '*chr.txt*' '*hdr.txt*' '*fet.txt*'
+      robocopy $interimfolder $copyToLitmus '*chr.txt*' '*hdr.txt*'
       Start-Sleep 2
 
       # Copy Interim to General
