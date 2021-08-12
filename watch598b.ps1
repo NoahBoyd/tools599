@@ -17,6 +17,12 @@ $global:copyToQCcalc =  "C:\data\cmm\watchedoutput\qccalc"
 
 $global:copyToGeneral = "C:\data\cmm\watchedoutput\general"
 
+$global:copyToLitmus = "C:\data\cmm\watchedoutput\litmus"
+
+$global:copyToA2 = "C:\data\cmm\system\A2"
+
+$global:temp3file = 'C:\data\cmm\system\temp3file'
+
 $global:logpath="c:\data\logs\watch598cmmresults"
 
 $global:thisNickName = "watch598-b-cmm-ps1"
@@ -52,6 +58,9 @@ cmd /c mkdir $PathToMonitor
 cmd /c mkdir $interimfolder
 cmd /c mkdir $copyToQCcalc
 cmd /c mkdir $copyToGeneral
+cmd /c mkdir $global:copyToLitmus
+cmd /c mkdir $global:copyToA2
+cmd /c mkdir $global:temp3file
 cmd /c mkdir $logpath
 
 # save process id to file. Could use this to check later that is still running.
@@ -70,7 +79,16 @@ cmd /c $carg
 
 # on startup, handle chr,fet,hdr files in folder A
 
+# Get last modification time of general folder to find when the last files were added
+$lastModTimeGeneral = (Get-item $copyToGeneral).lastwritetime
+Write-Host $lastModTimeGeneral
 
+# find all files that have a modification time later than lastmodificationtime in A and move them to interim folder
+get-childitem -Path $PathToMonitor |
+    where-object {$_.LastWriteTime -gt $lastModTimeGeneral} | 
+    copy-item -destination $interimfolder
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 
@@ -103,7 +121,7 @@ $Action = {
   # Write-Host $carg
 
 
-  $text = "{0} was {1} at {2} " -f $FullPath, $ChangeType, $Timestamp
+  $text = "{0} was {1} at {2} {3} " -f $FullPath, $ChangeType, $Timestamp, (get-date)
   Write-Host ""
   Write-Host $text -ForegroundColor Green
   
@@ -120,25 +138,71 @@ $Action = {
     {
     'Changed' {
 
-      # Wait 10 seconds after file is changed to move files
-      Start-Sleep -Seconds 10
+    # Check if file is correct type
+    if ($Name -match 'chr.txt' -or $Name -match 'hdr.txt' -or $Name -match 'fet.txt') {
+
+      # Get filename of changed file - ending filetype
+      $nameSliced = $Name.Substring(0,$Name.Length-8)
       
-      # Move files from monitored folder to interim folder
-      robocopy $PathToMonitor $interimfolder '*chr.txt*' '*hdr.txt*' '*fet.txt*'  /mov /is /R:3 /W:4 
+      # Check if folder named nameSliced exists and if not, create folder
+      $pathtemp3file = '{0}\{1}' -f $global:temp3file, $nameSliced
+      If(!(test-path $pathtemp3file)) {
+        New-Item -ItemType Directory -Force -Path $pathtemp3file
+      }
 
-      # copy files from interim folder to general folder
-      robocopy $interimfolder $copyToGeneral '*chr.txt*' '*hdr.txt*' '*fet.txt*'
+      # Copy file to its corresponding temp3file folder
+      robocopy $PathToMonitor $pathtemp3file $Name
+      Start-Sleep 2
 
-      # move files from interim folder to qccalc folder
-      robocopy $interimfolder $copyToQCcalc '*chr.txt*' '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4 
+      # Check if all 3 files have made it into temp3file folder
+      $filechr = $nameSliced + ".chr.txt"
+      $filehdr = $nameSliced + ".hdr.txt"
+      $filefet = $nameSliced + ".fet.txt"
+      
+      $chrfound = Test-Path -Path ($pathtemp3file + "\" + $filechr) -PathType Leaf
+      $hdrfound = Test-Path -Path ($pathtemp3file + "\" + $filehdr) -PathType Leaf
+      $fetfound = Test-Path -Path ($pathtemp3file + "\" + $filefet) -PathType Leaf
+      
+      # If they are all present in the folder, process files and remove folder
+      if ($chrfound -and $hdrfound -and $fetfound) {
+        Start-Sleep 10
+        # Copy notified files from A to B
+        robocopy $PathToMonitor $interimfolder $filechr $filehdr $filefet
+        Start-Sleep 2
 
+        # copy chr,hdr from B to E
+        robocopy $interimfolder $copyToLitmus '*chr.txt*' '*hdr.txt*'
+        Start-Sleep 2
 
-      #$cmd = 'cmd /c copy  "$FullPath" $copyToQCcalc>>$logpath\$rundate-$(gc env:computername)-$thisNickName--copy-log.txt'
-      #Invoke-expression $cmd 
-      #$cmd = 'cmd /c copy  "$FullPath" $copyToGeneral'
-      #Invoke-expression $cmd 
+        # Copy all from B to C
+        robocopy $interimfolder $copyToGeneral '*chr.txt*' '*hdr.txt*' '*fet.txt*'
+        Start-Sleep 2
+        
+        # Move all from B to D
+        robocopy $interimfolder $copyToQCcalc '*chr.txt*' '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4
+
+        # Delete temp3file folder and files
+        Remove-Item $pathtemp3file -Recurse
+
+      } 
+      # If they arent all present continue looking
+      else {
+        break
+      }
+      
+      $print = "changed switch: copying. file CHANGED  {0} {1}" -f (Get-Date), $FullPath
+      $print | Out-File 'C:\data\logs\watch598cmmresults\changed598logs.txt' -Append
+
+    } else {
+      break
     }
-    'Created' { "CREATED"}
+
+      
+    }
+    'Created' { 
+        $print = "FILE CREATED AT {0} {1}" -f (Get-Date), $FullPath
+        $print | Out-File 'C:\data\logs\watch598cmmresults\created598logs.txt' -Append
+    }
     'Deleted' { "DELETED"
     # uncomment the below to mimick a time intensive handler
     <#
@@ -152,7 +216,10 @@ $Action = {
       $text = "File {0} was renamed to {1}" -f $OldName, $Name
       Write-Host $text -ForegroundColor Yellow
     }
-    default { Write-Host $_ -ForegroundColor Red -BackgroundColor White }
+    default { 
+    Write-Host "default." -ForegroundColor Red -BackgroundColor White 
+    Write-Host $_ -ForegroundColor Red -BackgroundColor White 
+    }
   }
 }
 
@@ -160,7 +227,7 @@ $Action = {
 # add event handlers
 $handlers = . {
   Register-ObjectEvent -InputObject $FileSystemWatcher -EventName Changed -Action $Action -SourceIdentifier FSChange
-  # Register-ObjectEvent -InputObject $FileSystemWatcher -EventName Created -Action $Action -SourceIdentifier FSCreate
+  Register-ObjectEvent -InputObject $FileSystemWatcher -EventName Created -Action $Action -SourceIdentifier FSCreate
   # Register-ObjectEvent -InputObject $FileSystemWatcher -EventName Deleted -Action $Action -SourceIdentifier FSDelete
   # Register-ObjectEvent -InputObject $FileSystemWatcher -EventName Renamed -Action $Action -SourceIdentifier FSRename
 }
@@ -181,7 +248,7 @@ finally
   # this gets executed when user presses CTRL+C
   # remove the event handlers
   Unregister-Event -SourceIdentifier FSChange
-  # Unregister-Event -SourceIdentifier FSCreate
+  Unregister-Event -SourceIdentifier FSCreate
   # Unregister-Event -SourceIdentifier FSDelete
   # Unregister-Event -SourceIdentifier FSRename
   # remove background jobs
