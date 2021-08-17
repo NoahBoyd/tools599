@@ -19,8 +19,6 @@ $global:copyToGeneral = "C:\data\cmm\watchedoutput\general"
 
 $global:copyToLitmus = "C:\data\cmm\watchedoutput\litmus"
 
-$global:copyToA2 = "C:\data\cmm\system\A2"
-
 $global:temp3file = 'C:\data\cmm\system\temp3file'
 
 $global:logpath="c:\data\logs\watch598cmmresults"
@@ -29,6 +27,9 @@ $global:thisNickName = "watch598-b-cmm-ps1"
 
 $global:rundate = (Get-Date).toString("yyyy-MM-dd")
 
+$global:pathPMRL = 'C:\data\logs\watch598cmmresults\processmonitor598-runlog.txt'
+
+# $global:copyToA2 = "C:\data\cmm\system\A2"
 
 #  SETTINGS end ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -59,9 +60,9 @@ cmd /c mkdir $interimfolder
 cmd /c mkdir $copyToQCcalc
 cmd /c mkdir $copyToGeneral
 cmd /c mkdir $global:copyToLitmus
-cmd /c mkdir $global:copyToA2
 cmd /c mkdir $global:temp3file
 cmd /c mkdir $logpath
+# cmd /c mkdir $global:copyToA2
 
 # save process id to file. Could use this to check later that is still running.
 $tsdhms = (Get-Date).toString("yyyy-MM-dd_HH.mm.ss")
@@ -71,6 +72,8 @@ cmd /c $carg
 
 $carg = "echo {0}>{1}\{2}_{3}_pid.txt" -f $pid, $logpath,$(gc env:computername), $thisNickName
 cmd /c $carg
+
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -84,9 +87,13 @@ $lastModTimeGeneral = (Get-item $copyToGeneral).lastwritetime
 Write-Host $lastModTimeGeneral
 
 # find all files that have a modification time later than lastmodificationtime in A and move them to interim folder
-get-childitem -Path $PathToMonitor |
-    where-object {$_.LastWriteTime -gt $lastModTimeGeneral} | 
+get-childitem -Path $PathToMonitor -Filter '*hdr.txt*' |  where-object {$_.LastWriteTime -gt $lastModTimeGeneral} | 
     copy-item -destination $interimfolder
+get-childitem -Path $PathToMonitor -Filter '*chr.txt*' |  where-object {$_.LastWriteTime -gt $lastModTimeGeneral} | 
+    copy-item -destination $interimfolder
+get-childitem -Path $PathToMonitor -Filter '*fet.txt*' |  where-object {$_.LastWriteTime -gt $lastModTimeGeneral} | 
+    copy-item -destination $interimfolder
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -142,7 +149,7 @@ $Action = {
     if ($Name -match 'chr.txt' -or $Name -match 'hdr.txt' -or $Name -match 'fet.txt') {
 
       # Get filename of changed file - ending filetype
-      $nameSliced = $Name.Substring(0,$Name.Length-8)
+      $nameSliced = $Name.Substring(0,$Name.Length-7)
       
       # Check if folder named nameSliced exists and if not, create folder
       $pathtemp3file = '{0}\{1}' -f $global:temp3file, $nameSliced
@@ -151,34 +158,40 @@ $Action = {
       }
 
       # Copy file to its corresponding temp3file folder
-      robocopy $PathToMonitor $pathtemp3file $Name
-      Start-Sleep 2
+      robocopy $PathToMonitor $pathtemp3file $Name /xo
+      Start-Sleep 1
 
       # Check if all 3 files have made it into temp3file folder
-      $filechr = $pathtemp3file + "\" + $nameSliced + ".chr.txt"
-      $filehdr = $pathtemp3file + "\" + $nameSliced + ".hdr.txt"
-      $filefet = $pathtemp3file + "\" + $nameSliced + ".fet.txt"
+      $filechr = $nameSliced + "chr.txt"
+      $filehdr = $nameSliced + "hdr.txt"
+      $filefet = $nameSliced + "fet.txt"
       
-      $chrfound = Test-Path -Path $filechr -PathType Leaf
-      $hdrfound = Test-Path -Path $filehdr -PathType Leaf
-      $fetfound = Test-Path -Path $filefet -PathType Leaf
+      $chrfound = Test-Path -Path ($pathtemp3file + "\" + $filechr) -PathType Leaf
+      $hdrfound = Test-Path -Path ($pathtemp3file + "\" + $filehdr) -PathType Leaf
+      $fetfound = Test-Path -Path ($pathtemp3file + "\" + $filefet) -PathType Leaf
       
       # If they are all present in the folder, process files and remove folder
-      if ($chrfound -and $hdrfound -and $fetfound) {
-        #Start-Sleep 10
+      # if (2021-08-13_Fri_09.12-AM $chrfound -and $hdrfound -and $fetfound) {
+      if ( $hdrfound -and $fetfound) {
+        Start-Sleep 8
+        # Copy notified files from A to B
+        robocopy $PathToMonitor $interimfolder $filechr $filehdr $filefet /xo
+        # robocopy $PathToMonitor $interimfolder  $filehdr $filefet /tee /log+:$logpath.robocopy.interm.txt
+        Start-Sleep 2
 
         # copy chr,hdr from B to E
-        robocopy $pathtemp3file $copyToLitmus '*chr.txt*' '*hdr.txt*'
-        Start-Sleep 2
+        robocopy $interimfolder $copyToLitmus '*chr.txt*' '*hdr.txt*' /xo
+        Start-Sleep 1
 
         # Copy all from B to C
-        robocopy $pathtemp3file $copyToGeneral '*chr.txt*' '*hdr.txt*' '*fet.txt*'
-        Start-Sleep 2
+        robocopy $interimfolder $copyToGeneral '*chr.txt*' '*hdr.txt*' '*fet.txt*' /xo
+        Start-Sleep 1
         
         # Move all from B to D
-        robocopy $pathtemp3file $copyToQCcalc '*chr.txt*' '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4
+        robocopy $interimfolder $copyToQCcalc '*chr.txt*' '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4 /tee /log+:$logpath.robocopy.qcc.txt
+        #robocopy $interimfolder $copyToQCcalc  '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4
 
-        # Delete temp3file folder
+        # Delete temp3file folder and files
         Remove-Item $pathtemp3file -Recurse
 
       } 
@@ -187,41 +200,8 @@ $Action = {
         break
       }
       
-      
-
-      
-
-
       $print = "changed switch: copying. file CHANGED  {0} {1}" -f (Get-Date), $FullPath
       $print | Out-File 'C:\data\logs\watch598cmmresults\changed598logs.txt' -Append
-      
-      # 2021-08-08a: idea, if all three files, firstname.chr firstname.hdr firstname.fet are present, then copy them..
-      <#
-      # Copy file from A to A2
-      robocopy $PathToMonitor $copyToA2 $Name /tee /log+:$logpath\robo-cp-a2.$rundate.log.txt
-      Start-Sleep 1
-
-      # Move A2 to Interim
-      robocopy $copyToA2 $interimfolder '*chr.txt*' '*hdr.txt*' '*fet.txt*'  /mov /is /R:3 /W:4
-      Start-Sleep 1
-
-      # Copy Interim to Litmus
-      robocopy $interimfolder $copyToLitmus '*chr.txt*' '*hdr.txt*' '*fet.txt*'
-      # Start-Sleep 1
-
-      # Copy Interim to General
-      robocopy $interimfolder $copyToGeneral '*chr.txt*' '*hdr.txt*' '*fet.txt*'
-      # Start-Sleep 1
-
-      # Move Interim to Qc Calc
-      robocopy $interimfolder $copyToQCcalc '*chr.txt*' '*hdr.txt*' '*fet.txt*' /mov /is /R:3 /W:4
-
-
-      #$cmd = 'cmd /c copy  "$FullPath" $copyToQCcalc>>$logpath\$rundate-$(gc env:computername)-$thisNickName--copy-log.txt'
-      #Invoke-expression $cmd 
-      #$cmd = 'cmd /c copy  "$FullPath" $copyToGeneral'
-      #Invoke-expression $cmd 
-      #>
 
     } else {
       break
@@ -268,11 +248,41 @@ try
 {
   do
   {
-  # -Timeout 3 is wait 3 seconds in loop.
-    Wait-Event -Timeout 3
+    # `-Timeout 10` is wait 10 seconds in loop.
     Write-Host "." -NoNewline
+    Wait-Event -Timeout 10
+      
+    # run once per hour @ $smin
+    [int]$shr = get-date -format HH
+    [int]$smin = 52
+    $min = Get-Date ("{0}:{1}:00" -f $shr, $smin)
+    $max = Get-Date ("{0}:{1}:10" -f $shr, $smin) 
+    $now = Get-Date
+    
+    if ( $now.TimeOfDay -ge $min.TimeOfDay  -and $now.TimeOfDay -le $max.TimeOfDay ) {
+      Write-host "do it now!"
+      # get last line of processmonitor run-log
+      $last = Get-Item -Path $global:pathPMRL | Get-Content -Tail 1
+      # If pathPMRL file is empty (prevents crash)
+      if ($last.Length -lt 1){
+        continue
+      }
+      else {
+        # Convert time to date object
+        $lastline = [datetime]$last
+        # If current date > lastline + 10 mins report an error
+        if ((Get-Date) -gt $lastline.AddMinutes(10)) {
+          send-mailmessage -subject "Warning: error detected by watch598." -body "An error (processmonitor_watch598 has stopped working) was detected. Please check it. `n`nRef: this msg from computer: $(gc env:computername)  file: C:\Users\dgleba\Desktop\tools599-main\watchcopy598\processmonitor_watch598" -to @("nboyd@stackpole.com") -dno onFailure -smtpServer MESG06.stackpole.ca -from 'nboyd@stackpole.com'
+        } else {
+          continue
+        }
+      } 
+      (Get-Date).toString("yyyy-MM-dd_HH.mm.ss")|Write-Host
+    }
+    # end. run once per hour  
   } while ($true)
 }
+
 finally
 {
   # this gets executed when user presses CTRL+C
