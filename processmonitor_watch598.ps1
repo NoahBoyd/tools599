@@ -118,6 +118,35 @@ if ($filesForA.Length -gt 0) {
                 send-mailmessage -subject "Warning: error detected by processmonitor_watch598." -body "An error (File $f was not found in General) was detected. Please check it. `n`nRef: this msg from computer: $(gc env:computername)  file: C:\Users\dgleba\Desktop\tools599-main\watchcopy598\processmonitor_watch598" -to @("nboyd@stackpole.com") -dno onFailure -smtpServer MESG06.stackpole.ca -from 'nboyd@stackpole.com'
                 Set-Content  -Path $script:lastErrorEmailSent -Value (Get-Date)
                 
+                $taskName = "Watch598"
+                # If task is still running but error occurs
+                if (($task=Get-ScheduledTask $taskName).State -eq "Running"){
+                    # Stop the current scheduled task
+                    Stop-ScheduledTask $taskName
+
+                    Start-Sleep 10
+
+                    # Start new instance of scheduled task
+                    Start-ScheduledTask $taskName
+                    
+                    # If task is Disabled and error occurs
+                } elseif (($task=Get-ScheduledTask $taskName).State -eq "Disabled") {
+                    # Enable Scheduled Task
+                    Enable-ScheduledTask $taskName
+                    
+                    Start-Sleep 10
+
+                    # Start Scheduled Task
+                    Start-ScheduledTask $taskName
+                
+                    # If task is ready and error occurs
+                } elseif (($task=Get-ScheduledTask $taskName).State -eq "Ready") {
+                    # Start Scheduled Task
+                    Start-ScheduledTask $taskName
+                } else {
+                    continue
+                }
+                
                 Write-Host ""
 
             }
